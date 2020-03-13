@@ -4,19 +4,28 @@ window.addEventListener("load", function() {
 	
 	canvas.width = window.innerWidth;
 	canvas.height = window.innerHeight;
+// 	ctx.width = window.innerWidth;
+// 	ctx.height = window.innerHeight;
 	
 	main(ctx);
 });
 
+function trim(x) { return x.replace(/^\s+|\s+$/g, ''); }
 
+var box_metrics = {
+	h: 30,
+	w: 100,
+};
+box_metrics.hh = box_metrics.h /2
+box_metrics.hw = box_metrics.w /2
 
 function drawBox(ctx, n) {
 	ctx.save();
 	
-	var h = 30;
-	var hh = h / 2;
-	var w = 100;
-	var hw = w / 2;
+	var h = box_metrics.h;
+	var hh = box_metrics.hh;
+	var w = box_metrics.w;
+	var hw = box_metrics.hw;
 	
 	var t = n.loc.y - hh;
 	var b = n.loc.y + hh;
@@ -35,13 +44,14 @@ function drawBox(ctx, n) {
 	
 	ctx.lineWidth = 4;
 	ctx.lineJoin = 'round';
-	ctx.strokeStyle = 'blue';
+	ctx.strokeStyle = n.selected ? 'red' : 'blue';
 	
 	ctx.stroke();
 	
 	ctx.fillStyle = "black";
 	ctx.textStyle = 'black';
 	ctx.textAlign = 'center';
+	ctx.textBaseline = 'middle';
 	ctx.fillText(n.name, n.loc.x, n.loc.y);
 	
 	ctx.restore();
@@ -53,29 +63,30 @@ function trip(a, b, amt) {
 	return 0;
 }
 
-function drawEdge(ctx, a, b) {
-	var lower = a;
-	var upper = b;
-	if(lower.lvl > upper.lvl) {
-		lower = b;
-		upper = a;
-	}
+function drawEdge(ctx, e) {
+	var lower = e.lower;
+	var upper = e.upper;
 	
 	ctx.save();
+// 	ctx.translate(0.5, 0.5);
 	
 	var ldiff = upper.lvl - lower.lvl;
 	
 	
-	var inoff = trip(upper.rank, lower.rank, -10);
-	var outoff = trip(upper.rank, lower.rank, 10);
+// 	var inoff = trip(upper.rank, lower.rank, -10);
+// 	var outoff = trip(upper.rank, lower.rank, 10);
+	var inoff = (e.in_order * 4) - upper.ins * 2;
+	var outoff = (e.out_order * 4) - lower.outs * 2;
 // 	console.log(inoff, outoff, upper.name, lower.name);
-	var midy = (lower.loc.y + upper.loc.y) / 2;
+	var ll = e.line_level;
+	var midy = (ll * 3) + ((lower.loc.y + upper.loc.y) / 2);
+	
 	
 	ctx.beginPath();
 	
 	ctx.moveTo(lower.loc.x+outoff, lower.loc.y);
 	
-	if(false && ldiff > 1) { 
+	if(ldiff > 1) { 
 		if(upper.rank == lower.rank) { // need to go around
 			
 		}
@@ -91,16 +102,25 @@ function drawEdge(ctx, a, b) {
 		ctx.lineTo(upper.loc.x+inoff, upper.loc.y);
 	}
 	
-	ctx.strokeStyle = 'gray';
-	ctx.lineWidth = 1;
+	ctx.strokeStyle = upper.selected ? 'lime' : (lower.selected ? 'orange' : 'gray');
+	ctx.lineWidth = 2;
 	ctx.stroke();
 	
 	ctx.restore();
 	
-	
+// 	upper.cur_in++;
+// 	lower.cur_out++;
 }
 
-var tree_nodes = {
+function boxHitTest(n, pt) {
+	if(pt.x > n.loc.x + box_metrics.hw) return false;
+	if(pt.x < n.loc.x - box_metrics.hw) return false;
+	if(pt.y > n.loc.y + box_metrics.hh) return false;
+	if(pt.y < n.loc.y - box_metrics.hh) return false;
+	return true;
+}
+
+var _tree_nodes = {
 	jquery: {name: 'JQuery', deps: ['css', 'js']},
 	adv_css: {name: 'Advanced CSS', rank: 1, deps: ['css']},
 	html: {name: 'HTML', rank: 2},
@@ -111,17 +131,31 @@ var tree_nodes = {
 	crud: {name: 'CRUD App', rank: 4, deps: ['nodejs', 'sql']},
 };
 
+	var tree_nodes = _tree_nodes;
 
 function main(ctx) {
 	
 	var nlist = [];
 	var start = [];
 	
+	if(data_nodes !== undefined) {
+		tree_nodes = data_nodes;
+	}
 	
 	for(var x in tree_nodes) { 
 		var y = tree_nodes[x];
 		y.id = x;
+		y.ins = 0;
+		y.outs = 0;
+		y.cur_in = 0;
+		y.cur_out = 0;
+		y.inlist = [];
+		y.outlist = [];
 		nlist.push(y);
+		
+		if(typeof y.deps == 'string') {
+			y.deps = y.deps.split(',').map(function(x) { return trim(x);});
+		}
 		y.deps = y.deps || [];
 		if(y.deps.length == 0) {
 			start.push(y);
@@ -169,9 +203,10 @@ function main(ctx) {
 	
 	var levels = {};
 	var rank_cache = {};
+	var line_levels = {};
 	
 	for(var n of sorted) {
-		n.lvl = 1;
+		if(n.lvl == undefined) n.lvl = 1;
 		for(var d of n.deps) {
 			var m = tree_nodes[d];
 			if(m.lvl >= n.lvl) n.lvl = m.lvl + 1;
@@ -181,10 +216,11 @@ function main(ctx) {
 		levels[n.lvl].push(n);
 		
 		
+		line_levels[n.lvl] = line_levels[n.lvl] || [];
 		rank_cache[n.lvl] = rank_cache[n.lvl] || {};
 		if(n.rank) {
 			if(rank_cache[n.lvl][n.rank]) {
-				printf('rank collision')
+				console.log('rank collision')
 			}
 			
 			rank_cache[n.lvl][n.rank] = n;
@@ -216,7 +252,6 @@ function main(ctx) {
 // 			drawBox(ctx, n);
 			n.loc = {x: (n.rank-1) * 120 + 70, y: y};
 			
-			
 		}
 		
 		y -= 60;
@@ -235,21 +270,104 @@ function main(ctx) {
 			};
 			edge.dir = trip(edge.upper, edge.lower, 1);
 			
+			if(edges.dir != 0) {
+				edge.line_level = line_levels[edge.lower.lvl].length;
+				line_levels[edge.lower.lvl].push(edges);
+			}
+			
+			edge.lower.outs++;
+			edge.upper.ins++;
+			
+			edge.upper.inlist.push(edge);
+			edge.lower.outlist.push(edge);
+			
 			edges[edgekey(a, b)] = edge;
 		}
 	}
 	
-	// edge drawing
-	for(var id in edges) {
-		var e = edges[id];
-		drawEdge(ctx, e.upper, e.lower);
+	// edge in/out assignment
+	for(var id in tree_nodes) {
+		var n = tree_nodes[id];
+		function os(a, b) { return a.upper.rank - b.upper.rank; }
+		function is(a, b) { return a.lower.rank - b.lower.rank; }
+		n.inlist = n.inlist.sort(is);
+		n.outlist = n.outlist.sort(os);
+		
+		var i = 0;
+		for(var e of n.inlist) {
+			e.in_order = i++;
+		}
+		i = 0;
+		for(var e of n.outlist) {
+			e.out_order = i++;
+		}
 	}
+	
+	
+	draw();
+	
+	window.addEventListener('click', function(e) {
+		e.preventDefault();
+		
+		var pt = {
+			x: e.clientX,
+			y: e.clientY,
+		};
+		
+		for(var id in tree_nodes) {
+			var n = tree_nodes[id];
+			if(boxHitTest(n, pt)) {
+				
+				n.selected = true;
+			}
+			else {
+				n.selected = false;
+			}
+		}
+		
+		draw();
+	})
+	
+	// edge drawing
+// 	for(var id in tree_nodes) {
+// 		var n = tree_nodes[id];
+// 		for(var e of n.outlist) {
+// 			drawEdge(ctx, e);
+// 		}
+// 	}
+// 	for(var id in edges) {
+// 		var e = edges[id];
+		
+// 		e.in_off = 
+// 		e.out_off = 
+// 		
+// 	}
+	
+	// edge drawing
+// 	for(var id in edges) {
+// 		var e = edges[id];
+// 		drawEdge(ctx, e);
+// 	}
 	
 	// box drawing
-	for(var id in tree_nodes) {
-		drawBox(ctx, tree_nodes[id]);
-	}
+// 	for(var id in tree_nodes) {
+// 		drawBox(ctx, tree_nodes[id]);
+// 	}
 	
+	
+	function draw() {
+		ctx.clearRect(0, 0, ctx.width, ctx.height);
+		
+		for(var id in tree_nodes) {
+			var n = tree_nodes[id];
+			for(var e of n.outlist) {
+				drawEdge(ctx, e);
+			}
+		}
+		for(var id in tree_nodes) {
+			drawBox(ctx, tree_nodes[id]);
+		}
+	}
 	
 }
 
